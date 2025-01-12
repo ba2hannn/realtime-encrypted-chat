@@ -1,0 +1,498 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Voice Chat Room</title>
+    <link rel="stylesheet" href="{% static 'style.css' %}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .video-container {
+            width: 200px;
+            height: 150px;
+            border: 1px solid #ccc;
+            margin: 5px;
+            position: relative;
+        }
+        .video-container video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .username-label {
+            position: absolute;
+            top: 0;
+            left: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 2px 5px;
+            font-size: 12px;
+        }
+        #volume-meter-container {
+            width: 100%;
+            background-color: #eee;
+            border-radius: 5px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        #volume-meter {
+            height: 10px;
+            background-color: green;
+            width: 0%;
+            border-radius: 5px;
+        }
+        #sensitivity-control {
+            width: 100%;
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+        }
+        #sensitivity-control label {
+            margin-right: 10px;
+            font-size: 14px;
+        }
+        #sensitivity-slider {
+            flex-grow: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="voice-section">
+            <h2>
+                Voice Chat: {{room_name}}
+                <button onclick="location.href={% url 'room-list' %}" class="back-btn">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+            </h2>
+            <hr style="margin-top: 5px;">
+            <ul id="participants-list"></ul>
+            <button id="micToggle" class="control-btn inactive">
+                <i class="fa-solid fa-microphone"></i> Turn On Mic
+            </button>
+            <div id="volume-meter-container">
+                <div id="volume-meter"></div>
+            </div>
+            <div id="sensitivity-control">
+                <label for="sensitivity-slider">Sensitivity:</label>
+                <input type="range" id="sensitivity-slider" min="0" max="200" value="100">
+            </div>
+            <button id="cameraToggle" class="control-btn inactive">
+                <i class="fa-solid fa-video"></i> Turn On Camera
+            </button>
+        </div>
+    </div>
+    <div id="audio-container"></div>
+    <div id="video-container">
+        <div class="video-container" id="local-video-container" style="display: none;">
+            <div class="username-label">{{userName}}</div>
+            <video id="localVideo" playsinline autoplay muted></video>
+        </div>
+    </div>
+
+    <script>
+
+        // --- Değişkenler ve Veri Çekme ---
+        // Sunucudan gelen verileri ve HTML elementlerini alıyoruz
+        const roomName = '{{voice_chat}}';
+        const userID = '{{userID}}';      
+        const userName = '{{userName}}'; 
+        let localStream = null;         
+        let localVideoStream = null;      
+        let peerConnections = {};           
+        
+        // --- WebSocket Bağlantısı ---
+        // Sunucu ile WebSocket bağlantısı kuruyoruz
+        const ws = new WebSocket(`ws://${window.location.host}/ws/voice_chat/${roomName}/?userId=${userID}&userName=${encodeURIComponent(userName)}`);
+        
+        // HTML elementlerini seçiyoruz
+        const participantsList = document.getElementById('participants-list'); // Katılımcıların listelendiği <ul> elementi
+        const participants = new Map(); // Katılımcıları ve bilgilerini tutmak için Map veri yapısı
+        const localVideo = document.getElementById('localVideo');          // Kullanıcının kendi video elementini tutar
+        const localVideoContainer = document.getElementById('local-video-container'); // Yerel video konteynerini tutar
+        const volumeMeter = document.getElementById('volume-meter');       // Mikrofon ses seviyesini görselleştirmek için kullanılır.
+        const sensitivitySlider = document.getElementById('sensitivity-slider'); // Mikrofon hassasiyetini ayarlamak için slider elementini tutar.
+        let analyser = null;   // Ses verilerini analiz etmek için Web Audio API'den AnalyserNode
+        let gainNode = null;    // Ses seviyesini (gain) ayarlamak için Web Audio API'den GainNode
+        let connectionStartTime; // Bağlantı zamanını tutar
+
+
+        // --- Katılımcı Listesini Güncelleme Fonksiyonu ---
+        // Katılımcı listesini ve arayüzü güncelleyen fonksiyon
+        function updateParticipantsList(userData, isNew = true) {
+            console.log(`[Participants] Update participants list. isNew: ${isNew}, user data :`, userData);
+            const { peer_id, user_name } = userData; // Kullanıcı verilerini alıyoruz
+            const decodedName = decodeURIComponent(user_name); // URL kodlamasını çözüyoruz
+            
+            if (isNew) {
+                // --- Yeni Katılımcı Ekleme ---
+                if (!participants.has(peer_id)) {
+                    participants.set(peer_id, userData); // Katılımcıyı Map'e ekle
+                    const li = document.createElement('li'); // Yeni liste öğesi oluştur
+                    li.id = `participant-${peer_id}`; // Öğeye ID ver
+                    li.className = 'participant';      // Öğeye sınıf ver
+                    li.innerHTML = `
+                        <div class="user-info">
+                            <div class="user-name">${decodedName}</div> 
+                        </div>
+                    `;  // Öğenin içeriğini ayarla
+                    participantsList.appendChild(li);    // Öğeyi listeye ekle
+                    console.log(`[Participants] New participant added to list: ${decodedName} with ID: ${peer_id}.`); // Konsola log
+                }
+            } else {
+                // --- Katılımcı Çıkarma ---
+                participants.delete(peer_id);           // Katılımcıyı Map'ten sil
+                const li = document.getElementById(`participant-${peer_id}`); // Listedeki ilgili öğeyi al
+                if (li) li.remove();                     // Öğeyi DOM'dan sil
+                const videoDiv = document.getElementById(`video-container-${peer_id}`); // Katılımcının video konteynerini bul
+                if (videoDiv) videoDiv.remove();         // Video konteynerini DOM'dan sil
+                console.log(`[Participants] Participant removed from list and DOM: ${peer_id}.`); // Konsola log
+            }
+        }
+
+        // --- WebSocket Olayları ---
+        // WebSocket bağlantısının açılması
+        ws.onopen = () => {
+            console.log("[WebSocket] Connection opened!");
+            connectionStartTime = performance.now(); 
+            ws.send(JSON.stringify({
+                type: 'get_participants', // Sunucuya katılımcıları isteme mesajı gönder
+            }));
+            console.log("[WebSocket] Sending get_participants request.");
+        };
+
+        ws.onclose = () => console.log("[WebSocket] Connection closed!"); // Bağlantı kapandığında konsola yazdır
+        
+        ws.onerror = (error) => console.log("[WebSocket] Error:", error); // Hata durumunda konsola yazdır
+
+        // WebSocket'ten mesaj alındığında yapılacak işlemler
+        ws.onmessage = async (event) => {
+            const connectionTime = (performance.now() - connectionStartTime).toFixed(2); // Bağlantıdan mesaj alma süresini hesapla
+            console.log(`[WebSocket] Received message,  Data: ${event.data}, Time from connection: ${connectionTime}ms`); 
+            const data = JSON.parse(event.data); // Mesajı JSON formatından JavaScript objesine çevir
+            const startTime = performance.now(); 
+
+            // --- Yeni Bir Bağlantı (Peer) Oluşturulduğunda ---
+            if (data.type === 'new_peer') {
+                console.log("[WebSocket] Received new_peer message:", data); // Yeni peer mesajını konsola yazdır
+                updateParticipantsList(data); // Katılımcı listesini güncelle
+                const pc = createPeerConnection(data.peer_id); // Yeni peer için WebRTC bağlantısı oluştur
+                if (localStream) { // Eğer yerel mikrofon akışı varsa
+                    localStream.getTracks().forEach(track => pc.addTrack(track, localStream)); // Mikrofon akışını bağlantıya ekle
+                    console.log("[WebRTC] Local audio tracks added to peer connection."); // Konsola mikrofon akışının eklendiğini yazdır
+                }
+                if (localVideoStream) { // Eğer yerel video akışı varsa
+                    localVideoStream.getTracks().forEach(track => pc.addTrack(track, localVideoStream)); // Video akışını bağlantıya ekle
+                    console.log("[WebRTC] Local video tracks added to peer connection."); // Konsola video akışının eklendiğini yazdır
+                }
+                const offer = await pc.createOffer({ // WebRTC offer oluştur
+                    offerToReceiveAudio: true, // Ses almayı kabul et
+                    offerToReceiveVideo: true  // Video almayı kabul et
+                });
+                await pc.setLocalDescription(offer); // Oluşturulan offer'ı yerel bağlantıya ayarla
+                ws.send(JSON.stringify({ // Sunucuya offer'ı gönder
+                    type: 'offer',
+                    offer: offer,
+                    target: data.peer_id
+                }));
+                console.log("[WebRTC] Created and sent offer to:", data.peer_id); // Konsola offer gönderildiğini yazdır
+            }
+
+            // --- Bir Bağlantı (Peer) Koptuğunda ---
+            if (data.type === 'peer_disconnected') {
+                console.log("[WebSocket] Received peer_disconnected message:", data); // Peer bağlantısının koptuğunu konsola yazdır
+                updateParticipantsList(data, false); // Katılımcı listesini güncelle (çıkarılacak peer için)
+                if (peerConnections[data.peer_id]) { // Eğer bağlantı varsa
+                    peerConnections[data.peer_id].close(); // Bağlantıyı kapat
+                    delete peerConnections[data.peer_id]; // Bağlantıyı sil
+                    console.log("[WebRTC] Peer connection closed for:", data.peer_id); // Bağlantının kapatıldığını konsola yazdır
+                }
+            }
+
+            // --- Mevcut Katılımcıları Alındığında ---
+            if (data.type === 'current_participants') {
+                console.log("[WebSocket] Received current_participants message:", data); // Mevcut katılımcıların mesajını konsola yazdır
+                data.participants.forEach(participant => { // Her katılımcı için
+                    updateParticipantsList(participant);  // Katılımcı listesini güncelle
+                });
+            }
+
+            // --- Karşıdan Offer Mesajı Alındığında ---
+            if (data.type === 'offer') {
+                console.log("[WebSocket] Received offer message:", data); // Offer mesajını konsola yazdır
+                let pc = peerConnections[data.peer_id]; // Bağlantıyı al
+                if (!pc) { // Bağlantı yoksa
+                    pc = createPeerConnection(data.peer_id); // Yeni bağlantı oluştur
+                }
+                await pc.setRemoteDescription(new RTCSessionDescription(data.offer)); // Uzaktan gelen offer'ı ayarla
+                 // Uzaktan gelen offer'a cevap oluştur
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer); // Cevabı yerel bağlantıya ayarla
+                ws.send(JSON.stringify({ // Sunucuya cevabı gönder
+                    type: 'answer',
+                    answer: answer,
+                    target: data.peer_id
+                }));
+                console.log("[WebRTC] Created and sent answer to:", data.peer_id); // Cevabın gönderildiğini konsola yazdır
+            }
+
+            // --- Karşıdan Cevap (Answer) Mesajı Alındığında ---
+            if (data.type === 'answer' && peerConnections[data.peer_id]) {
+                console.log("[WebSocket] Received answer message:", data); // Cevap mesajını konsola yazdır
+                await peerConnections[data.peer_id].setRemoteDescription( // Uzaktan gelen cevabı ayarla
+                    new RTCSessionDescription(data.answer)
+                );
+            }
+
+            // --- ICE Candidate Alındığında ---
+            if (data.type === 'ice_candidate' && peerConnections[data.peer_id]) {
+                console.log("[WebSocket] Received ice_candidate message:", data); // ICE candidate mesajını konsola yazdır
+                try {
+                    await peerConnections[data.peer_id].addIceCandidate( // ICE candidate ekle
+                        new RTCIceCandidate(data.candidate)
+                    );
+                } catch (error) {
+                  console.error("[WebRTC] Error adding ice candidate:", error); // Hata varsa konsola yazdır
+                }
+            }
+
+             const endTime = performance.now(); // Mesaj işleme bitiş zamanı
+             const timeTaken = (endTime - startTime).toFixed(2); // Mesaj işleme süresini hesapla
+             console.log(`[WebSocket] Message processing time: ${timeTaken}ms.`); // İşleme süresini konsola yazdır
+        };
+
+        // --- WebRTC PeerConnection Oluşturma Fonksiyonu ---
+        function createPeerConnection(peerId) {
+            // Eğer aynı peer için bir bağlantı zaten varsa, kapat
+            if (peerConnections[peerId]) {
+                peerConnections[peerId].close();
+                console.log("[WebRTC] Existing peer connection closed for:", peerId); // Eski bağlantı kapatıldığını konsola yazdır
+            }
+
+            // Yeni bir RTCPeerConnection oluştur
+            const pc = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] // STUN sunucusunu kullanarak NAT traversal sağlar
+            });
+            console.log("[WebRTC] New peer connection created for:", peerId); // Yeni bağlantı oluşturulduğunu konsola yazdır
+
+            // ICE Candidate olayını dinle ve sunucuya gönder
+            pc.onicecandidate = (event) => {
+                if (event.candidate) { // Eğer bir ICE candidate varsa
+                    ws.send(JSON.stringify({ // Sunucuya gönder
+                        type: 'ice_candidate',
+                        candidate: event.candidate,
+                        target: peerId
+                    }));
+                    console.log("[WebRTC] Sending ice candidate to:", peerId, "candidate:", event.candidate); // ICE candidate gönderildiğini konsola yazdır
+                }
+            };
+
+            // Media track alındığında
+            pc.ontrack = (event) => {
+               console.log("[WebRTC] Received track event. kind:", event.track.kind, " for peerID: ", peerId); // Track event aldığını konsola yazdır
+                if (event.track.kind === 'audio') { // Eğer ses track ise
+                    let audio = document.getElementById(`audio-${peerId}`); // HTML'den audio elementini çek
+                    if (!audio) { // Yoksa
+                        audio = document.createElement('audio'); // Yeni bir audio elementi oluştur
+                        audio.id = `audio-${peerId}`;
+                        audio.autoplay = true; // Otomatik oynatmayı aktif et
+                        document.getElementById('audio-container').appendChild(audio); // audio container'a ekle
+                         console.log("[WebRTC] New audio element created for:", peerId); // Yeni elementin oluşturulduğunu konsola yazdır
+                    }
+                    audio.srcObject = event.streams[0]; // Ses akışını elemente ata
+                     console.log("[WebRTC] Audio stream set to element for:", peerId); // Ses akışının ayarlandığını konsola yazdır
+                } else if (event.track.kind === 'video') { // Eğer video track ise
+                     if (peerId === userID) { // Eğer video sahibi kendi ise
+                        // Local video stream
+                         if (localVideo.srcObject !== event.streams[0]) { // Eğer yerel video akışı değiştiyse
+                             localVideo.srcObject = event.streams[0]; // Yerel video elementine akışı ata
+                            localVideoContainer.style.display = 'block'; // Local video container'ı göster
+                            console.log("[WebRTC] Local video stream set to element. Display:", localVideoContainer.style.display); // Yerel video akışının ayarlandığını konsola yazdır
+                        }
+                    } else { // Eğer video sahibi başkası ise
+                        // Remote video stream
+                         let videoContainer = document.getElementById(`video-container-${peerId}`); // video container'ı HTML'den al
+                        let video;
+                        if (!videoContainer) { // Eğer video container yoksa
+                            const userData = participants.get(peerId); // Katılımcı bilgilerini al
+                            const nameToShow = userData ? decodeURIComponent(userData.user_name) : 'Unknown'; // Kullanıcı adını al
+
+                            videoContainer = document.createElement('div'); // Yeni div container oluştur
+                            videoContainer.className = 'video-container'; // CSS class'ını ayarla
+                            videoContainer.id = `video-container-${peerId}`; // ID'sini ayarla
+
+                             const usernameLabel = document.createElement('div'); // Kullanıcı adını gösterecek label oluştur
+                            usernameLabel.className = 'username-label'; // CSS class'ını ayarla
+                            usernameLabel.textContent = nameToShow; // Kullanıcı adını text olarak ayarla
+                            videoContainer.appendChild(usernameLabel); // Kullanıcı adını div container'a ekle
+
+                             video = document.createElement('video'); // Yeni video elementi oluştur
+                            video.autoplay = true; // Otomatik oynatmayı aktif et
+                            video.playsinline = true; // Mobile browserlar için inline oynamayı aktif et
+                            videoContainer.appendChild(video); // video elementini div container'a ekle
+
+                            document.getElementById('video-container').appendChild(videoContainer); // video container'ı video container'a ekle
+                            console.log("[WebRTC] New video container and element created for:", peerId); // Yeni video container'ın oluşturulduğunu konsola yazdır
+                        } else {
+                             video = videoContainer.querySelector('video'); // video elementini div container'dan çek
+                        }
+                         video.srcObject = event.streams[0]; // Video akışını elemente ata
+                         console.log("[WebRTC] Remote video stream set to element for:", peerId); // Uzak video akışının ayarlandığını konsola yazdır
+                    }
+                }
+            };
+            peerConnections[peerId] = pc; // Bağlantıyı sakla
+            console.log("[WebRTC] Peer connection stored for:", peerId); // Bağlantının saklandığını konsola yazdır
+            return pc; // Bağlantıyı geri döndür
+        }
+
+        // --- Ses İşleme Fonksiyonu ---
+        async function setupAudioProcessing(stream) {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)(); // Audio context oluştur
+            gainNode = audioContext.createGain(); // Gain node oluştur
+            const source = audioContext.createMediaStreamSource(stream); // Ses kaynağını oluştur
+            analyser = audioContext.createAnalyser(); // Analyser node oluştur
+            analyser.fftSize = 2048; // FFT boyutunu ayarla
+            source.connect(gainNode); // Kaynağı gain node'a bağla
+            gainNode.connect(analyser); // Gain node'u analyser node'a bağla
+             gainNode.connect(audioContext.destination); // Gain node'u ses çıkışına bağla
+             console.log("[Audio Processing] Audio processing initialized."); // Ses işlemenin başlatıldığını konsola yazdır
+           visualizeVolume(); // Ses seviyesini görselleştir
+        }
+
+        // --- Ses Seviyesini Görselleştirme Fonksiyonu ---
+        function visualizeVolume() {
+            if (!analyser) return; // Analyser yoksa fonksiyonu sonlandır
+             const bufferLength = analyser.frequencyBinCount; // Frekans aralığını al
+            const dataArray = new Uint8Array(bufferLength); // Frekans verilerini tutacak array oluştur
+            analyser.getByteFrequencyData(dataArray); // Frekans verilerini al
+
+             let sum = 0; // Toplamı tutacak değişken
+            for (let i = 0; i < bufferLength; i++) { // Tüm frekansları gez
+                 sum += dataArray[i]; // Toplamı hesapla
+             }
+             const average = sum / bufferLength; // Ortalama ses seviyesini hesapla
+             const volumePercentage = (average / 255) * 100; // Ses yüzdesini hesapla
+            volumeMeter.style.width = `${volumePercentage}%`; // Volume meter genişliğini ayarla
+             requestAnimationFrame(visualizeVolume); // Bir sonraki frame için görselleştirme fonksiyonunu çağır
+             //console.log("[Audio Processing] Volume visualized.");
+        }
+
+        // --- Hassasiyet Slider Olayı ---
+        sensitivitySlider.oninput = () => {
+             if (gainNode) { // Gain node varsa
+                gainNode.gain.value = sensitivitySlider.value / 100; // Slider değerine göre gain değerini ayarla
+                console.log(`[Audio Processing] Sensitivity changed. Current gain: ${gainNode.gain.value}`); // Hassasiyetin değiştirildiğini konsola yazdır
+            }
+        };
+
+
+        // --- DOM Yüklendikten Sonra Çalışacak Kod ---
+        document.addEventListener("DOMContentLoaded", function() {
+            // --- Mikrofon Açma/Kapama Buton Olayı ---
+            document.getElementById('micToggle').onclick = async () => {
+                const btn = document.getElementById('micToggle'); // Buton elementini al
+
+                if (!localStream) { // Eğer mikrofon akışı yoksa (mikrofon kapalıysa)
+                    try {
+                        localStream = await navigator.mediaDevices.getUserMedia({ audio: true }); // Mikrofon iznini al ve akışı oluştur
+                        setupAudioProcessing(localStream); // Ses işlemeyi başlat
+                        sensitivitySlider.value = 100; // Mikrofon açıldığında hassasiyeti sıfırla
+                        if (gainNode) gainNode.gain.value = 1; // Gain node değerini sıfırla
+                            console.log("[Mic] Microphone enabled and audio stream created."); // Mikrofonun açıldığını ve akışın oluşturulduğunu konsola yazdır
+
+                        // Tüm peer bağlantılarına yeni mikrofon akışını ekle
+                        Object.entries(peerConnections).forEach(async ([peerId, pc]) => {
+                            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+                            const offer = await pc.createOffer({ // WebRTC offer oluştur
+                                offerToReceiveAudio: true, // Ses almayı kabul et
+                                offerToReceiveVideo: true  // Video almayı kabul et
+                            });
+                            await pc.setLocalDescription(offer); // Offer'ı yerel bağlantıya ayarla
+                            ws.send(JSON.stringify({ // Sunucuya offer'ı gönder
+                                type: 'offer',
+                                offer: offer,
+                                target: peerId
+                            }));
+                            console.log("[WebRTC] Added local audio tracks to peer connection:", peerId, "and sent a new offer."); // Mikrofon akışının eklendiğini ve offer'ın gönderildiğini konsola yazdır
+                        });
+                        btn.innerHTML = '<i class="fa-solid fa-microphone"></i> Turn Off Mic'; // Butonun içeriğini değiştir
+                        btn.classList.replace('inactive', 'active'); // Butonun sınıfını değiştir
+                    } catch (err) {
+                        console.error('[Mic] Error accessing microphone:', err); // Mikrofon erişim hatasını konsola yazdır
+                    }
+                } else { // Eğer mikrofon akışı varsa (mikrofon açıksa)
+                    localStream.getTracks().forEach(track => track.stop()); // Mikrofon akışındaki tüm trackleri durdur
+                    localStream = null; // Mikrofon akışını sıfırla
+                    analyser = null; // Analyser'ı sıfırla
+                    gainNode = null; // Gain node'u sıfırla
+                    volumeMeter.style.width = '0%'; // Volume meter'ı sıfırla
+                    console.log("[Mic] Microphone disabled and audio stream stopped."); // Mikrofonun kapatıldığını ve akışın durduğunu konsola yazdır
+                    btn.innerHTML = '<i class="fa-solid fa-microphone"></i> Turn On Mic'; // Butonun içeriğini değiştir
+                    btn.classList.replace('active', 'inactive'); // Butonun sınıfını değiştir
+                }
+            };
+
+            // --- Kamera Açma/Kapama Buton Olayı ---
+        document.getElementById('cameraToggle').onclick = async () => {
+                const btn = document.getElementById('cameraToggle'); // Buton elementini al
+
+                if (!localVideoStream) { // Eğer kamera akışı yoksa (kamera kapalıysa)
+                    try {
+                        localVideoStream = await navigator.mediaDevices.getUserMedia({ video: true }); // Kamera iznini al ve akışı oluştur
+                        localVideo.srcObject = localVideoStream; // Yerel video elementine kamera akışını ata
+                        localVideoContainer.style.display = 'block'; // Yerel video konteynerini göster
+                        console.log("[Camera] Camera enabled and video stream created."); // Kameranın açıldığını ve akışın oluşturulduğunu konsola yazdır
+
+                        // Tüm peer bağlantılarına yeni kamera akışını ekle
+                        Object.entries(peerConnections).forEach(async ([peerId, pc]) => {
+                            localVideoStream.getTracks().forEach(track => pc.addTrack(track, localVideoStream));
+                            const offer = await pc.createOffer({ // WebRTC offer oluştur
+                                offerToReceiveAudio: true, // Ses almayı kabul et
+                                offerToReceiveVideo: true  // Video almayı kabul et
+                            });
+                            await pc.setLocalDescription(offer); // Offer'ı yerel bağlantıya ayarla
+                            ws.send(JSON.stringify({ // Sunucuya offer'ı gönder
+                                type: 'offer',
+                                offer: offer,
+                                target: peerId
+                            }));
+                            console.log("[WebRTC] Added local video tracks to peer connection:", peerId, "and sent a new offer."); // Kamera akışının eklendiğini ve offer'ın gönderildiğini konsola yazdır
+                        });
+
+                        btn.innerHTML = '<i class="fa-solid fa-video"></i> Turn Off Camera'; // Butonun içeriğini değiştir
+                        btn.classList.replace('inactive', 'active'); // Butonun sınıfını değiştir
+                    } catch (err) {
+                        console.error('[Camera] Error accessing camera:', err); // Kamera erişim hatasını konsola yazdır
+                    }
+                } else { // Eğer kamera akışı varsa (kamera açıksa)
+                    localVideoStream.getTracks().forEach(track => { // Kamera akışındaki tüm trackleri durdur
+                        track.stop();
+                    });
+                    localVideoStream = null; // Kamera akışını sıfırla
+                    localVideo.srcObject = null; // Yerel video elementini sıfırla
+                    localVideoContainer.style.display = 'none'; // Yerel video konteynerini gizle
+                    console.log("[Camera] Camera disabled and video stream stopped."); // Kameranın kapatıldığını ve akışın durduğunu konsola yazdır
+
+                    // Tüm peer bağlantılarından kamera akışını çıkar
+                    Object.entries(peerConnections).forEach(([peerId, pc]) => {
+                        pc.getSenders().forEach(sender => { // Tüm göndericileri al
+                            if (sender.track && sender.track.kind === 'video') { // Eğer gönderici video ise
+                                pc.removeTrack(sender); // Video track'ini kaldır
+                            }
+                        });
+                        console.log("[WebRTC] Removed local video tracks from peer connection: ", peerId); // Video track'inin bağlantıdan kaldırıldığını konsola yazdır
+                    });
+
+                    btn.innerHTML = '<i class="fa-solid fa-video"></i> Turn On Camera'; // Butonun içeriğini değiştir
+                    btn.classList.replace('active', 'inactive'); // Butonun sınıfını değiştir
+                }
+            };
+        });
+    </script>
+</body>
+</html>

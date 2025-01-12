@@ -1,0 +1,10 @@
+{
+  "apiKey": "AIzaSyEXAMPLE_API_KEY_HERE",
+  "authDomain": "example-project.firebaseapp.com",
+  "databaseURL": "https://example-project-default-rtdb.firebaseio.com",
+  "projectId": "example-project-id",
+  "storageBucket": "example-project.appspot.com",
+  "messagingSenderId": "123456789012",
+  "appId": "1:123456789012:web:example-app-id",
+  "measurementId": "G-EXAMPLE_MEASUREMENT_ID"
+}

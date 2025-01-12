@@ -1,0 +1,65 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="{% static 'style.css' %}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Room</title>
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .back-button {
+            background-color: transparent;
+            border: none;
+            font-size: 24px;
+            color: #0084ff;
+            cursor: pointer;
+            margin-bottom: 20px; 
+            display: block;
+            text-align: left;
+        }
+
+        .back-button:hover {
+            color: #006fcc;
+        }
+    </style>
+</head>
+<body>
+    {% if error %}
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const errorDiv = document.querySelector('.error-message');
+            errorDiv.style.display = 'block';
+            errorDiv.textContent = '{{error}}';
+        });
+    </script>
+    {% endif %}
+
+    <div class="create-room-container">
+        <a class="back-button" href="{% url 'room-list' %}">
+            <i class="fas fa-arrow-left"></i>
+        </a>
+
+        <h2>Create a Room</h2>
+        <form action="" method="POST">
+            {% csrf_token %}
+            <input type="text" id="room-name" name="room-name" placeholder="Enter room name" required />
+            <input type="password" id="room-password" name="room-password" placeholder="Enter room password (optional)" />
+            <button type="submit">Create Room</button>
+        </form>
+
+        <br>
+
+        <div class="error-message"></div>
+    </div>
+</body>
+</html>

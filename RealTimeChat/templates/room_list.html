@@ -1,0 +1,1080 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Application</title>
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js"></script>
+    <script src="{% static 'js/notification.js' %}" type="module"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js"></script>
+    <link rel="stylesheet" href="{% static 'style.css' %}">
+    <style> 
+        .password-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+             background-color: rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            
+        }
+        
+        .modal-content {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 10px;
+             box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            width: 350px;
+            max-width: 90%;
+            text-align: center;
+            position: relative;
+             margin: auto; /* Modalın yatayda ortalanması */
+            transform: translateY(-50%); /* Dikeyde ortalamak için */
+            top: 50%;
+            
+        }
+        
+        .close-modal {
+            color: #aaa;
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+             transition: color 0.3s;
+        }
+        
+        .close-modal:hover,
+        .close-modal:focus {
+            color: #333;
+            text-decoration: none;
+        }
+        
+        .modal-content h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+        
+        #room-password-input {
+            padding: 12px;
+            margin: 15px 0;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            box-sizing: border-box;
+            width: calc(100% - 24px);
+            font-size: 1rem;
+             transition: border-color 0.3s;
+        }
+        
+        #room-password-input:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        
+        #enter-room-btn {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+             transition: background-color 0.3s;
+        }
+        
+        #enter-room-btn:hover {
+            background-color: #0056b3;
+        }
+        
+        #password-error {
+            color: #dc3545;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+            /* Add styles for the password modal */
+            .password-modal {
+                display: none;
+                position: fixed;
+                z-index: 1;
+                left: 0;
+                top: 0;
+                width: 100%;
+                height: 100%;
+                overflow: auto;
+                background-color: rgba(0, 0, 0, 0.4);
+                justify-content: center;
+                align-items: center;
+            }
+    
+            .password-modal-content {
+                background-color: #fefefe;
+                padding: 20px;
+                border: 1px solid #888;
+                width: 300px;
+                text-align: center;
+                border-radius: 8px;
+            }
+    
+            .password-modal-content input[type="password"] {
+                margin: 10px 0;
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+            }
+    
+            .password-modal-content button {
+                padding: 10px 15px;
+                background-color: #007bff;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+             .password-modal-content button:hover {
+                background-color: #0056b3;
+            }
+    
+            .chat-messages .message {
+                max-width: 300px;
+                word-wrap: break-word;
+            }
+    
+            .chat-messages div i {
+                margin-top: 100px;
+                margin-left: 1000px;
+            }
+        </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js" type="module"></script>
+</head>
+<body>
+    <div class="app-container">
+        <div class="users-section">
+            <h2>
+                Rooms
+                <button type="Button" onclick="location.href='{% url 'chat-list' %}'" class="user-icon"><i class="fa-solid fa-user"></i></button>
+            </h2>
+
+            <hr>
+
+            <div class="user-list-container">
+                <ul id="user-list"></ul>
+            </div>
+
+            <div class="buttom-container">
+                <button type="Button" onclick="location.href='{% url 'create-room' %}'" class="logout-icon"><i class="fa-solid fa-circle-plus"></i></button>
+                <button type="Button" onclick="location.href='{% url 'logout' %}'" class="logout-icon"><i class="fa-solid fa-right-from-bracket"></i></button>
+            </div>
+        </div>
+
+        <div class="chat-section" id="chat-section">
+            <div id="no-chat-selected">
+                <p>Select a room to start chatting</p>
+            </div>
+            <div id="chat-interface" style="display: none;">
+                <div class="chat-header">
+                    <div class="header-container">
+                        <h3 id="selected-user">Room chat <span id="chat-user-name"></span></h3>
+                        <button type="button" id="voice-chat-btn" class="voice-chat-icon">
+                            <i class="fa-solid fa-microphone"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="chat-messages" id="chatContainer">
+                    <!-- Messages will be displayed here -->
+                </div>
+                <div class="chat-input">
+                    <form id="message-form">
+                        <button type="button" class="photo-button" id="photo-button"><i class="fa-regular fa-square-plus"></i></button>
+                        <input type="text" id="msg" placeholder="Type your message..." required>
+                        <button type="button" class="emoji-button" id="emoji-button"><i class="fa-regular fa-face-smile"></i></button>
+                        <emoji-picker></emoji-picker>
+                        <button type="submit" class="msg-send"><i class="fa-regular fa-paper-plane"></i></button>
+                    </form>
+                </div>
+                <div id="image-upload-panel" class="image-upload-panel" style="display: none;">
+                    <div class="upload-content">
+                        <div class="image-preview" id="image-preview">
+                            <img id="preview-img" src="" alt="" style="display: none;">
+                            <div class="upload-placeholder" id="upload-placeholder">
+                                <i class="fa-solid fa-cloud-upload-alt"></i>
+                                <p>Click to select or drag an image here</p>
+                            </div>
+                        </div>
+                        <input type="file" id="image-input" accept="image/*" style="display: none;">
+                        <button type="button" class="send-image-btn" id="send-image-btn" disabled>Send Image</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+         <div id="password-modal" class="password-modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close-modal" id="close-modal">×</span>
+                <h2>Enter Password</h2>
+                <input type="password" id="room-password-input" placeholder="Room Password">
+                <button id="enter-room-btn">Enter Room</button>
+                <p id="password-error" style="color: red;"></p>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+
+        // Sayfadaki HTML elementlerini JavaScript tarafında yakalıyoruz (DOM elementlerini seçiyoruz).
+        // Emoji seçme butonunu yakalıyoruz.
+        const emojiButton = document.getElementById('emoji-button');
+        // Emoji seçici elementini yakalıyoruz.
+        const emojiPicker = document.querySelector('emoji-picker');
+        // Mesaj yazma input elementini yakalıyoruz.
+        const messageInput = document.getElementById('msg');
+
+        // Fotoğraf ekleme butonunu yakalıyoruz.
+        const photoButton = document.getElementById('photo-button');
+        // Resim yükleme panelini yakalıyoruz.
+        const imageUploadPanel = document.getElementById('image-upload-panel');
+        // Resim önizleme alanını yakalıyoruz.
+        const imagePreview = document.getElementById('image-preview');
+        // Resim yüklemek için input elementini yakalıyoruz.
+        const imageInput = document.getElementById('image-input');
+        // Önizleme için kullanılacak img elementini yakalıyoruz.
+        const previewImg = document.getElementById('preview-img');
+        // Yükleme sırasında gösterilecek placeholder (yer tutucu) elementini yakalıyoruz.
+        const uploadPlaceholder = document.getElementById('upload-placeholder');
+        // Resim gönderme butonunu yakalıyoruz.
+        const sendImageBtn = document.getElementById('send-image-btn');
+
+        // Resim yükleme ile ilgili fonksiyonlar
+
+        // Kullanıcı bir resim seçtiğinde (input[type=file] üzerinden) çalışacak fonksiyon
+        function handleImageSelect(e) 
+        {
+            // Seçilen dosyayı (file) alıyoruz.
+            const file = e.target.files[0];
+            // Eğer bir dosya seçilmişse
+            if (file) {
+                // handleImageFile fonksiyonunu çağırarak dosyayı işliyoruz.
+                handleImageFile(file);
+            }
+        }
+
+        // Seçilen resim dosyasını işleyen fonksiyon
+        function handleImageFile(file) 
+        {
+            // Eğer dosya bir resim dosyası ise (dosya türü 'image/' ile başlıyorsa)
+            if (file.type.startsWith('image/')) {
+                // FileReader nesnesi oluşturuyoruz.
+                const reader = new FileReader();
+                // FileReader'ın yükleme tamamlandığında çalışacak fonksiyonu tanımlıyoruz.
+                reader.onload = function(e) {
+                    // Önizleme resminin src attribute'unu, yüklenen resmin data URL'si ile güncelliyoruz.
+                    previewImg.src = e.target.result;
+                    // Önizleme resmini görünür hale getiriyoruz.
+                    previewImg.style.display = 'block';
+                    // Yer tutucu (placeholder) elementini gizliyoruz.
+                    uploadPlaceholder.style.display = 'none';
+                    // Resim gönderme butonunu aktif hale getiriyoruz.
+                    sendImageBtn.disabled = false;
+                };
+                // FileReader'a dosyayı data URL olarak okumasını söylüyoruz.
+                reader.readAsDataURL(file);
+            }
+        }
+
+        // Resim yükleme panelini başlangıç haline getiren fonksiyon (resimleri temizleme vs.)
+        function resetUploadPanel() 
+        {
+            // Resim yükleme inputunun değerini sıfırlıyoruz (seçilen resmi temizliyoruz).
+            imageInput.value = '';
+            // Önizleme resminin src özelliğini sıfırlıyoruz (resmi kaldırıyoruz).
+            previewImg.src = '';
+             // Önizleme resmini gizliyoruz.
+            previewImg.style.display = 'none';
+             // Yer tutucu (placeholder) elementini görünür hale getiriyoruz.
+            uploadPlaceholder.style.display = 'block';
+             // Resim gönderme butonunu pasif hale getiriyoruz.
+            sendImageBtn.disabled = true;
+        }
+
+        // Sürüklenen elementin (resmin) önizleme alanının üzerine gelmesi durumunda çalışacak fonksiyon
+        function handleDragOver(e) {
+            // Varsayılan sürükle-bırak olayını engelliyoruz.
+            e.preventDefault();
+            // Olayın yayılmasını engelliyoruz (olayın başka elementler tarafından ele alınmasını engelliyoruz).
+            e.stopPropagation();
+            // Önizleme alanına 'drag-over' sınıfını ekleyerek görsel bir geri bildirim sağlıyoruz.
+            imagePreview.classList.add('drag-over');
+        }
+
+        // Sürüklenen elementin (resmin) önizleme alanından ayrılması durumunda çalışacak fonksiyon
+        function handleDragLeave(e) {
+            // Varsayılan sürükle-bırak olayını engelliyoruz.
+            e.preventDefault();
+            // Olayın yayılmasını engelliyoruz.
+            e.stopPropagation();
+            // Önizleme alanından 'drag-over' sınıfını kaldırarak görsel geri bildirimi kaldırıyoruz.
+            imagePreview.classList.remove('drag-over');
+        }
+
+         // Sürüklenen resmin bırakılması (drop) durumunda çalışacak fonksiyon
+        function handleDrop(e) {
+            // Varsayılan sürükle-bırak olayını engelliyoruz.
+            e.preventDefault();
+            // Olayın yayılmasını engelliyoruz.
+            e.stopPropagation();
+            // Önizleme alanından 'drag-over' sınıfını kaldırıyoruz.
+            imagePreview.classList.remove('drag-over');
+
+             // Bırakılan dosyaları alıyoruz.
+            const files = e.dataTransfer.files;
+            // Eğer dosya varsa
+            if (files.length > 0) {
+                 // Bırakılan ilk dosyayı alıyoruz
+                const file = files[0];
+                // Eğer dosya bir resim dosyası ise
+                if (file.type.startsWith('image/')) {
+                   // handleImageFile fonksiyonunu çağırarak dosyayı işliyoruz.
+                    handleImageFile(file);
+                     // DataTransfer nesnesi oluşturarak, bırakılan dosyayı inputa ekleyebilmek için saklıyoruz.
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(file);
+                    // imageInput'un files özelliğine bırakılan dosyaları atıyoruz.
+                    imageInput.files = dataTransfer.files;
+                } else {
+                    // Resim dosyası değilse kullanıcıya bir uyarı veriyoruz.
+                    alert('Please drop an image file.');
+                }
+            }
+        }
+
+        // Sayfa yüklendiğinde çalışacak olay dinleyicisi (event listener) ekleniyor.
+        document.addEventListener('DOMContentLoaded', function() {
+
+            // Resim önizleme alanına (imagePreview) sürükleme olayları için dinleyiciler ekleniyor.
+            imagePreview.addEventListener('dragover', handleDragOver); // Sürüklenen nesne alanın üzerine geldiğinde
+            imagePreview.addEventListener('dragleave', handleDragLeave); // Sürüklenen nesne alandan ayrıldığında
+            imagePreview.addEventListener('drop', handleDrop); // Sürüklenen nesne alana bırakıldığında
+
+            // Fotoğraf butonuna tıklama olayı için dinleyici ekleniyor.
+            photoButton.addEventListener('click', () => {
+                // Resim yükleme panelinin görünürlüğünü toggle ediyoruz (açıp kapatıyoruz).
+                const currentDisplay = imageUploadPanel.style.display;
+                imageUploadPanel.style.display = currentDisplay === 'none' ? 'block' : 'none';
+                // Eğer panel kapanıyorsa (display none yapılıyorsa)
+                if(imageUploadPanel.style.display === 'none')
+                {
+                    // Resim yükleme panelini resetleyerek resim önizlemesini temizliyoruz
+                    resetUploadPanel();
+                }
+            });
+
+            // Resim önizleme alanına tıklama olayı için dinleyici ekleniyor.
+            imagePreview.addEventListener('click', () => {
+                // Resim input elementine tıklayarak dosya seçme penceresini açıyoruz.
+                imageInput.click();
+            });
+
+            // Resim inputunun değeri değiştiğinde (dosya seçildiğinde) handleImageSelect fonksiyonunu çağırıyoruz.
+            imageInput.addEventListener('change', handleImageSelect);
+
+            // imagePreview üzerine sürükeleme yapıldığında varsayılan davranışları engelliyoruz.
+             imagePreview.addEventListener('dragover', (e) => {
+                 e.preventDefault();
+             });
+
+             // Başlangıçta emoji seçiciyi gizliyoruz.
+            emojiPicker.style.display = 'none';
+            
+            // Emoji butonuna tıklama olayı için dinleyici ekleniyor.
+            emojiButton.addEventListener('click', () => {
+                // Emoji seçici panelinin görünürlüğünü toggle ediyoruz (açıp kapatıyoruz).
+                const currentDisplay = emojiPicker.style.display;
+                emojiPicker.style.display = currentDisplay === 'none' ? 'block' : 'none';
+                
+            });
+
+            // Emoji seçici içindeki bir emojiye tıklanıldığında çalışacak olay dinleyicisi
+            emojiPicker.addEventListener('emoji-click', event => {
+                // Seçilen emojinin unicode değerini alıyoruz
+                const emoji = event.detail.unicode;
+                
+                // Mesaj inputundaki mevcut cursor pozisyonunu alıyoruz
+                const cursorPosition = messageInput.selectionStart;
+                
+                // Mesaj inputunun mevcut değerini alıyoruz.
+                const currentValue = messageInput.value;
+                // Mesaj inputunun değerini, seçilen emoji eklenecek şekilde güncelliyoruz.
+                messageInput.value = 
+                    currentValue.slice(0, cursorPosition) + // İmleç pozisyonuna kadar olan metni alıyoruz
+                    emoji + // Seçilen emojiyi ekliyoruz
+                    currentValue.slice(cursorPosition); // İmleç pozisyonundan sonraki metni alıyoruz.
+                
+                // İmleci emojiyi ekledikten sonraki pozisyona getiriyoruz.
+                const newPosition = cursorPosition + emoji.length;
+                messageInput.setSelectionRange(newPosition, newPosition);
+                
+                // Mesaj inputuna focusluyoruz
+                messageInput.focus();
+            });
+            
+            // Belgeye (document) tıklama olay dinleyicisi ekliyoruz (emoji seçicinin dışına tıklanınca kapanması için)
+            document.addEventListener('click', event => {
+                // Eğer tıklanılan yer emoji seçici veya emoji butonu değilse
+                if (!emojiPicker.contains(event.target) && 
+                    !emojiButton.contains(event.target)) {
+                    // Emoji seçiciyi gizliyoruz.
+                    emojiPicker.style.display = 'none';
+                }
+            });
+        });
+        
+        // Mesajları şifreleme fonksiyonu
+        function encryptMessage(message, messageID) {
+           // Şifreleme için mesaj ID'sini kullanıyoruz.
+            const key = messageID;
+            // Mesajı UTF-8 kodlu bir byte dizisine dönüştürüyoruz.
+            const encoder = new TextEncoder();
+            const messageBytes = encoder.encode(message);
+            // Anahtarı da UTF-8 kodlu bir byte dizisine dönüştürüyoruz.
+            const keyBytes = encoder.encode(key);
+            
+            // Şifrelenmiş byte dizisini oluşturuyoruz.
+            const encryptedBytes = new Uint8Array(messageBytes.length);
+            // XOR şifreleme uyguluyoruz (message ve key dizilerini birleştirerek)
+            for (let i = 0; i < messageBytes.length; i++) {
+                encryptedBytes[i] = messageBytes[i] ^ keyBytes[i % keyBytes.length];
+            }
+            
+            // Şifrelenmiş byte dizisini Base64 formatına dönüştürerek binary veri taşımasını sağlıyoruz.
+            const encryptedBase64 = btoa(String.fromCharCode.apply(null, encryptedBytes));
+             // Şifre için kullandığımız anahtarı da Base64 formatına dönüştürüyoruz.
+            const keyBase64 = btoa(String.fromCharCode.apply(null, keyBytes));
+            
+            // Şifrelenmiş mesaj verisi ve anahtarını objeyle döndürüyoruz.
+            return {
+                data: encryptedBase64,
+                key: keyBase64
+            };
+        }
+
+        // Mesajları deşifreleme fonksiyonu
+        function decryptMessage(encryptedData, key) {
+            // Base64 formatındaki şifrelenmiş veriyi byte dizisine dönüştürüyoruz.
+            const encryptedBytes = new Uint8Array(
+                atob(encryptedData).split('').map(char => char.charCodeAt(0))
+            );
+             // Base64 formatındaki anahtarı byte dizisine dönüştürüyoruz.
+            const keyBytes = new Uint8Array(
+                atob(key).split('').map(char => char.charCodeAt(0))
+            );
+            
+            // Deşifrelenmiş byte dizisini oluşturuyoruz.
+            const decryptedBytes = new Uint8Array(encryptedBytes.length);
+           // XOR şifreleme algoritmasını tersine çevirerek mesajı deşifre ediyoruz.
+            for (let i = 0; i < encryptedBytes.length; i++) {
+                decryptedBytes[i] = encryptedBytes[i] ^ keyBytes[i % keyBytes.length];
+            }
+            
+            // Byte dizisini tekrar UTF-8 kodlu stringe dönüştürüyoruz.
+            const decoder = new TextDecoder();
+            return decoder.decode(decryptedBytes);
+        }
+
+        // Firebase modüllerini import ediyoruz
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+        import { getFirestore, collection, getDocs, addDoc, serverTimestamp, doc, getDoc } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+
+       // Firebase yapılandırmasını (config) tanımlıyoruz
+       const firebaseConfig = {
+        apiKey: "AIzaSyEXAMPLE_API_KEY_HERE",
+        authDomain: "example-project.firebaseapp.com",
+        projectId: "example-project-id",
+        storageBucket: "example-project.firebasestorage.app",
+        messagingSenderId: "123456789012",
+        appId: "1:123456789012:web:example-app-id",
+        measurementId: "G-EXAMPLE_MEASUREMENT_ID"
+      };
+
+        // Firebase uygulamasını başlatıyoruz.
+        const app = initializeApp(firebaseConfig);
+        // Firestore veritabanını alıyoruz.
+        const db = getFirestore(app);
+        
+        // View'dan gelen verileri alıyoruz (Django template engine ile gönderilen veriler).
+        const userID = '{{ userID }}'; // Kullanıcı ID'sini alıyoruz.
+        const userName = '{{userName}}'; // Kullanıcı adını alıyoruz.
+
+
+         // Okunmamış mesajları tutmak için Map veri yapısı (mesaj ID -> mesaj div elementi)
+        const notReadMap = new Map();
+         // Parola modal elementini alıyoruz
+        const passwordModal = document.getElementById('password-modal');
+        // Modal'ı kapatma butonunu alıyoruz
+        const closeModalButton = document.getElementById('close-modal');
+        // Parola input elementini alıyoruz
+        const passwordInput = document.getElementById('room-password-input');
+        // Odaya giriş butonunu alıyoruz
+        const enterRoomButton = document.getElementById('enter-room-btn');
+        // Parola hata mesajı elementini alıyoruz
+        const passwordError = document.getElementById('password-error');
+        // Parola gerektiren odayı saklamak için değişken
+        let selectedRoomForPassword = null;
+
+        // Modal'ı kapatma işlemi
+        closeModalButton.onclick = () => {
+            // Modal'ı gizliyoruz
+            passwordModal.style.display = 'none';
+            // Parola inputunu temizliyoruz
+            passwordInput.value = '';
+            // Hata mesajını temizliyoruz
+            passwordError.textContent = '';
+             console.log("[Password Modal] Modal closed by close button.");
+        };
+
+        // Modal'ın dışına tıklayınca modalı kapatan fonksiyon
+        window.onclick = (event) => {
+            if (event.target == passwordModal) {
+                // Modal'ı gizliyoruz
+                passwordModal.style.display = "none";
+                 // Parola inputunu temizliyoruz
+                passwordInput.value = '';
+                // Hata mesajını temizliyoruz
+                passwordError.textContent = '';
+                 console.log("[Password Modal] Modal closed by clicking outside.");
+            }
+        };
+
+        // Belirtilen odanın eski mesajlarını yükleyen asenkron fonksiyon
+        async function loadOldMessages(roomName) {
+            // Mesajların görüntülendiği konteynerı alıyoruz
+           const chatContainer = document.getElementById("chatContainer");
+           // Mevcut mesajları temizliyoruz
+           chatContainer.innerHTML = "";
+           // Firestore'dan belirtilen odanın mesaj koleksiyonuna referans alıyoruz
+           const messagesRef = collection(db, "rooms", `${roomName}`, "messages");
+           // Mesaj koleksiyonundaki tüm dökümanları çekiyoruz
+           const querySnapshot = await getDocs(messagesRef);
+           console.log(`[Firestore] GET Request: /rooms/${roomName}/messages, Documents: ${querySnapshot.size}`);
+
+           // Mesajları tarih sıralamasına göre sıralıyoruz
+           const sortedMessages = querySnapshot.docs.sort((a, b) => {
+                   const dateA = new Date(a.data().timestamp.toDate());
+                   const dateB = new Date(b.data().timestamp.toDate());
+                   return dateA - dateB; 
+               });
+           
+           // Sıralı mesajların her biri için
+           sortedMessages.forEach(doc => {
+               const message = doc.data();
+               const sender = message.sender; // Mesajı gönderen kullanıcı ID
+               const textMessage = message.message;  // Mesaj metni
+               const senderName = message.senderName; // Gönderen kullanıcının adı
+               const isRead = message.isRead;  // Mesajın okunma durumu
+               const type = message.type; // Mesajın türü (text veya image)
+               const messageID = doc.id; // Mesajın ID'si
+   
+               // Yeni bir mesaj div'i oluşturuyoruz ve 'message' sınıfı atıyoruz. Ayrıca gönderene göre 'received' veya 'sent' class'ını ekliyoruz
+                const messageDiv = document.createElement('div');
+                   messageDiv.className = sender !== userID  ? 'message received' : 'message sent';
+                    
+                    // Gönderen adını göstermek için span elementi oluşturuluyor ve sınıfı atanıyor.
+                    const senderSpan = document.createElement('span');
+                     senderSpan.className = 'sender-name';
+                     senderSpan.textContent = senderName + ' : ';  // Gönderen adı ve iki nokta üst üste ekleniyor.
+                       messageDiv.appendChild(senderSpan); // Gönderen adının span elementi mesaj div'ine ekleniyor.
+                   
+               // Mesaj türü resim ise
+               if (type === 'image') 
+               {
+                   // Resim elementini oluşturuyoruz
+                   const image = document.createElement('img');
+                   image.src = textMessage; // Resim kaynağını mesaj içeriği (URL) olarak ayarlıyoruz
+                   messageDiv.appendChild(image);  // Resmi mesaj div'ine ekliyoruz
+               } 
+               // Mesaj türü resim değilse
+               else 
+               {
+                   // Mesaj metnini göstermek için span elementi oluşturuyoruz
+                   const messageSpan = document.createElement('span');
+                   messageSpan.className = 'message-text';
+                   const decryptedMessage = decryptMessage(textMessage, messageID); // Şifrelenmiş mesajı deşifre ediyoruz
+                   messageSpan.textContent = decryptedMessage; // Deşifre edilen mesajı span elementinin içeriğine yazıyoruz
+                    messageDiv.appendChild(messageSpan)  // Mesaj metni spanını mesaj div'ine ekliyoruz
+               }
+   
+               // Okundu işaretini göstermek için i elementi oluşturuyoruz
+                const tickIcon = document.createElement('i');
+               // Mesaj okunduysa çift tik, okunmadıysa tek tik gösteriyoruz
+               tickIcon.className = isRead == true  ? 'fa-solid fa-check-double' : 'fa-solid fa-check'; 
+               messageDiv.appendChild(tickIcon);  // Okundu işaretini mesaj div'ine ekliyoruz
+   
+               // Mesaj div'ini chatContainer'a ekliyoruz.
+               chatContainer.appendChild(messageDiv);
+   
+                // Eğer mesaj okunmamış ve gönderen mevcut kullanıcı değilse
+               if (!isRead && sender !== userID)
+               {
+                    // Okundu bilgisini sunucuya göndermek için payload oluşturuyoruz
+                    const readStatusPayload = {
+                           'type': 'read_status',
+                           'room_name': roomName,
+                           'messageID': doc.id,
+                       };
+                       // Zaman ölçümü için başlangıç zamanı kaydediyoruz.
+                       const startTime = performance.now();
+                       socket.send(JSON.stringify(readStatusPayload)); // Okundu bilgisi sunucuya gönderiliyor
+                        const endTime = performance.now(); // Zaman ölçümü için bitiş zamanı kaydediliyor.
+                       const timeTaken = (endTime - startTime).toFixed(2); // Geçen süre hesaplanıyor.
+                       console.log(`[WebSocket] Sending read_status payload: ${JSON.stringify(readStatusPayload)}, Time taken: ${timeTaken}ms`);
+                       notReadMap.set(doc.id,messageDiv); // Okunmamış mesajı notReadMap'e ekliyoruz.
+                   }
+           });
+           // Mesajları en alt kısma kaydırıyoruz.
+           scrollToBottom();
+       }
+
+       // Kullanıcı seçildiğinde (oda seçildiğinde) çalışacak fonksiyon
+       function selectUser(roomName, roomNameFromInfo, isPasswordProtected) {
+            console.log(`[User Selection] User selected room: ${roomName}, Name: ${roomNameFromInfo}, Password protected: ${isPasswordProtected}`);
+            // Eğer oda şifreli ise
+           if (isPasswordProtected) {
+               selectedRoomForPassword = { roomName, roomNameFromInfo }; // Seçilen odayı password modala için değişkene atıyoruz.
+               passwordModal.style.display = 'block'; // Modalı görünür hale getiriyoruz
+               passwordError.textContent = '';// Hata mesajını temizliyoruz.
+               console.log("[Password Modal] Showing password modal for room:", roomName);
+
+           } 
+           // Eğer oda şifreli değil ise
+           else {
+               loadOldMessages(roomName); // Eski mesajları yüklüyoruz
+               setupWebSocket(roomName);  // Websocket bağlantısını kuruyoruz
+               document.getElementById('no-chat-selected').style.display = 'none'; // 'No chat selected' mesajını gizliyoruz
+               document.getElementById('chat-interface').style.display = 'flex';  // Chat arayüzünü görünür yapıyoruz
+                document.getElementById('chat-user-name').textContent = roomNameFromInfo; // Seçilen kullanıcının adını chat arayüzünde gösteriyoruz
+               const voiceChatBtn = document.getElementById('voice-chat-btn'); // Sesli sohbet butonunu alıyoruz
+                voiceChatBtn.onclick = () => {
+                    // Sesli sohbet sayfasına yönlendiriyoruz
+                   location.href = `/voice_chat/${roomName}/`;
+                   console.log(`[Voice Chat] Navigating to voice chat for room: ${roomName}`);
+                };
+           }
+       }
+       
+       // Odaya giriş yapma butonuna tıklayınca çalışacak olan fonksiyon
+        enterRoomButton.onclick = async () => {
+           const password = passwordInput.value;  // Girilen parolayı alıyoruz
+           const roomName = selectedRoomForPassword.roomName; // Seçilen odanın adını alıyoruz
+            const roomNameFromInfo = selectedRoomForPassword.roomNameFromInfo; // Seçilen odanın gösterilecek adını alıyoruz
+           // Parola girilmemişse
+            if (!password) {
+                passwordError.textContent = 'Please enter a password.';// Hata mesajını gösteriyoruz
+                console.log("[Password Modal] Password field is empty.");
+                return;
+           }
+
+            try {
+                // Sunucuya parolayı doğrulama isteği gönderiyoruz
+               const response = await fetch('/verify_password/', {
+                   method: 'POST',
+                   headers: {
+                       'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}' // CSRF token ekliyoruz (Django için)
+                    },
+                   body: JSON.stringify({ room_name: roomName, password: password }) // İsteğe JSON body gönderiyoruz
+               });
+               
+               const data = await response.json(); // Sunucudan gelen cevabı JSON formatında alıyoruz
+               
+               // Eğer doğrulama başarılı ise
+               if (data.success) {
+                  passwordModal.style.display = 'none'; // Modalı gizliyoruz
+                  passwordInput.value = '';  // Parola inputunu temizliyoruz
+                   passwordError.textContent = ''; // Hata mesajını temizliyoruz
+                    console.log(`[Password Modal] Password verification successful for room: ${roomName}.`);
+                   loadOldMessages(roomName);  // Eski mesajları yüklüyoruz
+                    setupWebSocket(roomName); // WebSocket bağlantısını kuruyoruz
+                    document.getElementById('no-chat-selected').style.display = 'none'; // No Chat selected mesajını gizliyoruz
+                    document.getElementById('chat-interface').style.display = 'flex'; // Chat arayüzünü görünür yapıyoruz
+                   document.getElementById('chat-user-name').textContent = roomNameFromInfo;// Seçilen kullanıcının adını chat arayüzünde gösteriyoruz
+                   const voiceChatBtn = document.getElementById('voice-chat-btn'); // Sesli sohbet butonunu alıyoruz
+                   voiceChatBtn.onclick = () => {
+                        // Sesli sohbet sayfasına yönlendiriyoruz
+                       location.href = `/voice_chat/${roomName}/`;
+                    };
+                      console.log(`[Voice Chat] Navigating to voice chat for room: ${roomName}`);
+                    selectedRoomForPassword = null; // Seçilen odayı sıfırlıyoruz.
+                }
+                // Doğrulama başarısız olursa
+               else {
+                    passwordError.textContent = data.error; // Sunucudan dönen hata mesajını gösteriyoruz
+                    passwordInput.value = '';  // Parola inputunu temizliyoruz
+                     console.log(`[Password Modal] Password verification failed for room: ${roomName}. Error: ${data.error}`);
+                }
+             } 
+            // Bir hata oluşursa
+            catch (error) {
+                passwordError.textContent = 'An error occurred. Please try again.'; // Hata mesajını gösteriyoruz
+                 console.error("[Password Modal] An error occurred during password verification:", error);
+               
+            }
+
+       };
+
+        // WebSocket değişkenini tanımlıyoruz (başlangıçta null).
+        let socket = null;
+        // WebSocket bağlantısının başlama zamanını tutacak değişken
+        let connectionStartTime;
+
+        // WebSocket bağlantısını kuran fonksiyon
+        function setupWebSocket(selectedRoom) {
+            // Eğer mevcut bir socket bağlantısı varsa
+            if (socket) {
+                 console.log("[WebSocket] Closing existing WebSocket connection.");
+                // Mevcut bağlantıyı kapatıyoruz
+                socket.close();
+                // socket değişkenini null yaparak önceki bağlantıyı temizliyoruz
+                socket = null;
+            }
+
+            // HTTPS mi yoksa HTTP mi olduğuna göre protokolü (wss veya ws) belirliyoruz.
+            const websocketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+            // WebSocket endpointini oluşturuyoruz
+            const wsEndpoint = `${websocketProtocol}://${window.location.host}/ws/notification/${selectedRoom}/`;
+            // Yeni bir WebSocket bağlantısı oluşturuyoruz
+            socket = new WebSocket(wsEndpoint);
+             console.log(`[WebSocket] Attempting to connect to: ${wsEndpoint}`);
+            // Bağlantı başlangıç zamanını kaydediyoruz.
+             connectionStartTime = performance.now();
+
+            // WebSocket bağlantısı açıldığında çalışacak fonksiyon
+            socket.onopen = () => {
+                // Bağlantı süresini hesaplıyoruz
+                const connectionTime = (performance.now() - connectionStartTime).toFixed(2);
+                console.log(`[WebSocket] Connection opened! Connection time: ${connectionTime}ms`);
+            };
+            // WebSocket bağlantısı kapandığında çalışacak fonksiyon
+            socket.onclose = () => console.log("[WebSocket] Connection closed!");
+            // WebSocket hatası oluştuğunda çalışacak fonksiyon
+            socket.onerror = (error) => console.log("[WebSocket] Error:", error);
+            
+            // Resim gönderme butonuna tıklama olayı için dinleyici ekleniyor
+            sendImageBtn.addEventListener('click', async () => {
+                // Seçilen dosyayı alıyoruz
+                const file = imageInput.files[0];
+                // Eğer dosya varsa
+                if (file) {
+                    // FileReader nesnesi oluşturuyoruz
+                    const reader = new FileReader();
+                    
+                    // FileReader yükleme işlemi bittiğinde çalışacak fonksiyon
+                    reader.onload = async (event) => {
+                        // Yeni bir resim objesi oluşturuyoruz
+                        const img = new Image();
+                        // Resmin kaynağını okunan data URL olarak ayarlıyoruz
+                        img.src = event.target.result;
+                        
+                        // Resim yüklenene kadar bekliyoruz
+                        await new Promise(resolve => img.onload = resolve);
+                        
+                        // Resmin genişlik ve yüksekliğini alıyoruz.
+                        let width = img.width;
+                        let height = img.height;
+                         // Eğer genişlik veya yükseklik 2048px'den büyükse
+                        if (width > 2048 || height > 2048) {
+                             // Resmin boyutunu orantılı olarak küçültüyoruz.
+                            const ratio = Math.min(2048 / width, 2048 / height);
+                            width *= ratio;
+                            height *= ratio;
+                        }
+                        
+                         // Canvas elementi oluşturuyoruz
+                        const canvas = document.createElement('canvas');
+                        // Canvas boyutlarını resmin yeni boyutlarına ayarlıyoruz
+                        canvas.width = width;
+                        canvas.height = height;
+                        
+                        // Canvas contexti alıyoruz
+                        const ctx = canvas.getContext('2d');
+                        // Resmi canvas'a çiziyoruz (boyutu küçültülmüş şekilde)
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        // Resmi base64 stringine dönüştürüyoruz (jpeg formatında)
+                        const base64Image = canvas.toDataURL('image/jpeg', 0.9);
+                        
+                         // Yeni bir tarih oluşturuyoruz (mesaj id için)
+                        const timestamp = new Date();
+                         // Mesaj payload'unu oluşturuyoruz
+                        const messagePayload = {
+                            'message': base64Image, // base64 resim verisi
+                            'room_name': selectedRoom, // oda adı
+                            'sender': userID, // gönderen kullanıcı id
+                            'sendername': userName, // gönderen kullanıcı adı
+                            'messageID': `${userID}-${timestamp.getTime()}`, // mesaj id
+                            'type': 'image',// mesaj tipi
+                        };
+                        // Mesaj payload'unu stringe çeviriyoruz
+                        const payloadString = JSON.stringify(messagePayload);
+                        // Zaman ölçümü için başlangıç zamanı kaydediyoruz.
+                          const startTime = performance.now();
+                        socket.send(payloadString);// Mesajı websocket üzerinden gönderiyoruz.
+                        const endTime = performance.now(); // Zaman ölçümü için bitiş zamanı kaydediyoruz.
+                         const timeTaken = (endTime - startTime).toFixed(2);  // Geçen süre hesaplanıyor.
+                         console.log(`[WebSocket] Sending image message, Payload size: ${payloadString.length} bytes, Time taken: ${timeTaken}ms, Payload: ${payloadString}`);
+                    };
+                    
+                    // Dosyayı data URL olarak okuyoruz
+                    reader.readAsDataURL(file);
+                     // Yükleme panelini sıfırlıyoruz.
+                    resetUploadPanel();
+                    // Mesaj inputunu temizliyoruz
+                    messageInput.value = "";
+                     // Yükleme panelini gizliyoruz.
+                    imageUploadPanel.style.display = 'none';
+                }
+            });
+            
+            // Mesaj formunun submit olayını null yapıyoruz (önceki event listener'ları temizliyoruz)
+            document.getElementById('message-form').onsubmit = null;
+            // Mesaj formunun submit olayına yeni bir event listener tanımlıyoruz
+            document.getElementById('message-form').onsubmit = function (event) {
+                 // Sayfanın yenilenmesini engelliyoruz.
+                event.preventDefault();
+                // Mesaj input elementini alıyoruz
+                const messageInput = document.getElementById('msg');
+                // Mesajı alıp boşlukları temizliyoruz
+                const message = messageInput.value.trim(); 
+                // Yeni bir tarih nesnesi oluşturuyoruz (mesaj id için).
+                const timestamp = new Date();
+                // Mesaj ID'sini oluşturuyoruz
+                const messageID = `${userID}-${timestamp.getTime()}`;
+
+               // Eğer mesaj boş ise
+                if (!message) {
+                    console.log("[WebSocket] Message is empty. Not sending.");
+                     return;
+                }
+
+                // Eğer socket açık durumda ve mesaj boş değilse
+                if (socket.readyState === WebSocket.OPEN && message) {
+                     // Mesajı şifreliyoruz.
+                    const encrypted = encryptMessage(message, messageID);
+                     // Mesaj payload'unu oluşturuyoruz
+                    const messagePayload = {
+                        'message': encrypted.data, // Şifrelenmiş mesaj
+                        'room_name': selectedRoom, // Oda adı
+                        'sender': userID, // Gönderen kullanıcı ID
+                         'sendername': userName, // Gönderen kullanıcı adı
+                        'messageID':encrypted.key, // Şifreleme için kullandığımız key
+                        'type' : 'message', // mesaj tipi
+                    };
+                    // Mesaj payload'unu stringe çeviriyoruz
+                    const payloadString = JSON.stringify(messagePayload);
+                     // Zaman ölçümü için başlangıç zamanı kaydediyoruz.
+                     const startTime = performance.now();
+                    socket.send(payloadString); // Mesajı WebSocket üzerinden gönderiyoruz
+                    const endTime = performance.now();// Zaman ölçümü için bitiş zamanı kaydediyoruz.
+                     const timeTaken = (endTime - startTime).toFixed(2);  // Geçen süre hesaplanıyor.
+                     console.log(`[WebSocket] Sending text message, Payload size: ${payloadString.length} bytes, Time taken: ${timeTaken}ms, Payload: ${payloadString}`);
+                     // Mesaj inputunu temizliyoruz
+                    messageInput.value = ""; 
+                } else {
+                    console.log("[WebSocket] WebSocket is not open. Message not sent.");
+                }
+            };
+             // WebSocket üzerinden mesaj geldiğinde çalışacak fonksiyon
+            socket.onmessage = (event) => {
+                   // Zaman ölçümü için başlangıç zamanı kaydediliyor.
+                  const startTime = performance.now();
+                // Gelen mesajı JSON formatından JavaScript objesine dönüştürüyoruz
+                const data = JSON.parse(event.data);
+                 console.log(`[WebSocket] Received message, Data: ${event.data}`);
+                  // Mesaj verisini alıyoruz.
+                const messageData = data['message'];
+
+                  // Mesaj tipini alıyoruz.
+                const messageType = messageData['type'];
+                
+                // Eğer mesaj tipi 'read_status' ise
+                if (messageType == 'read_status')
+                {
+                     // Okundu bilgisinin mesaj ID'sini alıyoruz
+                    const messageId = messageData['messageID'];
+            
+                     // Eğer okunmamış mesaj map'inde bu ID varsa
+                    if (notReadMap.has(messageId)) 
+                    {
+                        // Mesaj divini alıyoruz
+                        const messageDiv = notReadMap.get(messageId);
+                        // Okundu işaretini çift tik yapıyoruz
+                        messageDiv.querySelector('.fa-solid.fa-check').className = 'fa-solid fa-check-double'; 
+                        // Okunmamış mesajlar map'inden siliyoruz.
+                        notReadMap.delete(messageId);
+                         const endTime = performance.now(); // Zaman ölçümü için bitiş zamanı kaydediliyor.
+                        const timeTaken = (endTime - startTime).toFixed(2);  // Geçen süre hesaplanıyor.
+                       console.log(`[WebSocket] Received read_status message for messageID ${messageId}, Time taken: ${timeTaken}ms.`);
+                    }
+                }
+                // Eğer mesaj tipi 'message' ise (normal text mesajı ise)
+                else if(messageType == 'message')
+                {
+                    const sender = messageData['sender']; // Mesaj gönderen ID
+                     const senderName = messageData['sendername'] // Mesaj gönderen kullanıcı adı
+                    const encryptedMessage = messageData['message']; // Şifrelenmiş mesaj
+                    const isRead = messageData['isRead'];  // Mesajın okunma durumu
+                     const messageID = messageData['messageID'];// Mesaj ID'si
+
+
+                    const decryptedMessage = decryptMessage(encryptedMessage, messageID);  // Şifrelenmiş mesajı deşifre ediyoruz
+
+                   // Yeni bir mesaj div'i oluşturuyoruz ve 'message' sınıfı atıyoruz. Ayrıca gönderene göre 'received' veya 'sent' class'ını ekliyoruz
+                     const messageDiv = document.createElement('div');
+                    messageDiv.className = sender !== userID ? 'message received' : 'message sent';
+
+                    // Gönderen adını göstermek için span elementi oluşturuluyor ve sınıfı atanıyor.
+                     const senderSpan = document.createElement('span');
+                      senderSpan.className = 'sender-name';
+                       senderSpan.textContent = senderName + ' : ';  // Gönderen adı ve iki nokta üst üste ekleniyor.
+                        messageDiv.appendChild(senderSpan); // Gönderen adının span elementi mesaj div'ine ekleniyor.
+
+                     // Mesaj içeriğini göstermek için span elementi oluşturuluyor
+                    const messageSpan = document.createElement('span');
+                     messageSpan.className = 'message-text';
+                     messageSpan.textContent = decryptedMessage;  // Mesaj içeriği span elementine atanıyor
+                    messageDiv.appendChild(messageSpan); // Mesaj içeriğinin span elementi mesaj div'ine ekleniyor.
+            
+                    // Okundu işaretini göstermek için i elementi oluşturuyoruz
+                    const tickIcon = document.createElement('i');
+                     // İkonun class'ını belirliyoruz.
+                    tickIcon.className = 'fa-solid fa-check'; 
+                    messageDiv.appendChild(tickIcon); // Okundu işaretini mesaj div'ine ekliyoruz.
+
+                    // Mesajların bulunduğu container elementi alınıyor.
+                    const chatContainer = document.getElementById("chatContainer");
+                    chatContainer.appendChild(messageDiv);  // Yeni mesaj div'i chat container'a ekleniyor.
+                    notReadMap.set(messageID,messageDiv); // Okunmamış mesaj map'ine mesaj ID ve div kaydediliyor.
+
+                     // Eğer mesajı gönderen mevcut kullanıcı değilse ve mesaj okunmamış ise
+                    if (sender !== userID && !isRead)
+                    {
+                         // Okundu bilgisini sunucuya göndermek için payload oluşturuyoruz
+                        const readStatusPayload = {
+                            'type': 'read_status',
+                            'room_name': selectedRoom,
+                             'messageID': messageID,
+                        };
+                         // Zaman ölçümü için başlangıç zamanı kaydediliyor.
+                         const startTime = performance.now();
+                         socket.send(JSON.stringify(readStatusPayload)); // Okundu bilgisi sunucuya gönderiliyor
+                         const endTime = performance.now();  // Zaman ölçümü için bitiş zamanı kaydediliyor.
+                        const timeTaken = (endTime - startTime).toFixed(2);   // Geçen süre hesaplanıyor.
+                         console.log(`[WebSocket] Sending read_status payload: ${JSON.stringify(readStatusPayload)}, Time taken: ${timeTaken}ms`);
+                    }
+                     scrollToBottom(); // Mesajları en alt kısma kaydırıyoruz
+                }
+                 // Eğer mesaj tipi 'image' ise (resim mesajı ise)
+                else if(messageType == "image")
+                {
+                    const sender = messageData['sender']; // Mesaj gönderen ID
+                    const imageUrl = messageData['message']; // Resim URL'si
+                    const messageID = messageData['messageID']; // Mesaj ID'si
+                     const sendername = messageData['sendername']; // Gönderen kullanıcının adı
+                    
+                   // Yeni bir mesaj div'i oluşturuyoruz ve 'message' sınıfı atıyoruz. Ayrıca gönderene göre 'received' veya 'sent' class'ını ekliyoruz
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = sender !== userID ? 'message received' : 'message sent';
+                    
+                    // Yeni bir resim elementini oluşturuyoruz
+                    const image = document.createElement('img');
+                    image.src = imageUrl;  // Resim kaynağını mesaj içeriği (URL) olarak ayarlıyoruz
+                    
+                     // Okundu işaretini göstermek için i elementi oluşturuyoruz
+                    const tickIcon = document.createElement('i');
+                     // İkonun class'ını belirliyoruz.
+                    tickIcon.className = 'fa-solid fa-check';
+                    
+                    // Gönderen adını göstermek için span elementi oluşturuluyor ve sınıfı atanıyor.
+                     const senderSpan = document.createElement('span');
+                      senderSpan.className = 'sender-name';
+                       senderSpan.textContent =  sendername + ' : ';  // Gönderen adı ve iki nokta üst üste ekleniyor.
+                        messageDiv.appendChild(senderSpan); // Gönderen adının span elementi mesaj div'ine ekleniyor.
+                    
+                     // Resim elementini mesaj div'ine ekliyoruz.
+                    messageDiv.appendChild(image);
+                    // Okundu işaretini mesaj div'ine ekliyoruz.
+                    messageDiv.appendChild(tickIcon);
+
+                    
+                    // Mesajların bulunduğu container elementi alınıyor.
+                    const chatContainer = document.getElementById("chatContainer");
+                    chatContainer.appendChild(messageDiv);  // Yeni mesaj div'i chat container'a ekleniyor.
+                    notReadMap.set(messageID, messageDiv); // Okunmamış mesaj map'ine mesaj ID ve div kaydediliyor.
+                    
+                    // Eğer mesaj gönderen mevcut kullanıcı değilse
+                    if (sender !== userID) {
+                         // Okundu bilgisini sunucuya göndermek için payload oluşturuyoruz
+                         const readStatusPayload = {
+                            'type': 'read_status_image',
+                            'room_name': selectedRoom,
+                             'messageID': messageID,
+                         };
+                          // Zaman ölçümü için başlangıç zamanı kaydediliyor.
+                         const startTime = performance.now();
+                         socket.send(JSON.stringify(readStatusPayload)); // Okundu bilgisi sunucuya gönderiliyor
+                         const endTime = performance.now(); // Zaman ölçümü için bitiş zamanı kaydediliyor.
+                        const timeTaken = (endTime - startTime).toFixed(2); // Geçen süre hesaplanıyor.
+                        console.log(`[WebSocket] Sending read_status_image payload: ${JSON.stringify(readStatusPayload)}, Time taken: ${timeTaken}ms`);
+                    }
+                     scrollToBottom(); // Mesajları en alt kısma kaydırıyoruz.
+                }
+                 // Toplam mesaj işleme süresini hesaplayıp logluyoruz
+                 const endTime = performance.now();
+            const timeTaken = (endTime - startTime).toFixed(2);
+           console.log(`[WebSocket] Message processing time: ${timeTaken}ms.`);
+            };
+        }
+        
+        // Mesajları en alta kaydıran fonksiyon
+        function scrollToBottom() {
+            const chatContainer = document.getElementById('chatContainer');
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // Kullanıcıları / Odaları Firestore'dan çekip listeye ekleyen asenkron fonksiyon
+        async function getUsers() {
+            const roomList = document.getElementById('user-list');
+            // Firestore'dan "rooms" koleksiyonundaki tüm dökümanları çek
+            const querySnapshot = await getDocs(collection(db, "rooms"));
+            console.log(`[Firestore] GET Request: /rooms, Documents: ${querySnapshot.size}`);
+            
+            // Her döküman için
+            for (const doc of querySnapshot.docs) {
+                const roomName = doc.id; // Oda adını dökümanın ID'sinden al
+                
+                // Oda dökümanının verilerini al
+                const roomInfo = doc.data();
+                
+                if (roomInfo) {
+                     const roomNameFromInfo = roomInfo.room_name; // Odadaki room_name alanından adı al
+                    const isPasswordProtected = roomInfo.room_password != null; // Odanın şifreli olup olmadığını kontrol et
+
+                    // Oda için bir liste elemanı oluştur
+                    const li = document.createElement('li');
+                    li.textContent = roomNameFromInfo; // Liste elemanının içeriğini oda adı olarak ayarla
+                    li.onclick = () => selectUser(roomName, roomNameFromInfo, isPasswordProtected); // Tıklandığında odayı seçme fonksiyonunu çağır
+                    roomList.appendChild(li); // Liste elemanını odayı listeleyen div'e ekle
+                }
+            }
+        }
+
+        getUsers(); // Kullanıcıları/Odaları listeleme fonksiyonunu çağır
+    </script>
+
+</body>
+</html>

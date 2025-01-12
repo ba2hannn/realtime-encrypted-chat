@@ -1,0 +1,715 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Application</title>
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js"></script>
+    <link rel="stylesheet" href="{% static 'style.css' %}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js" type="module"></script>
+    <style>
+        /* Add styles for the password modal */
+        .password-modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.4);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .password-modal-content {
+            background-color: #fefefe;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 300px;
+            text-align: center;
+            border-radius: 8px;
+        }
+
+        .password-modal-content input[type="password"] {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .password-modal-content button {
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+         .password-modal-content button:hover {
+            background-color: #0056b3;
+        }
+
+        .chat-messages .message {
+            max-width: 300px;
+            word-wrap: break-word;
+        }
+
+        .chat-messages div i {
+            margin-top: 100px;
+            margin-left: 1000px;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="users-section">
+            <h2>
+                Users
+                <button type="Button" onclick="location.href='{% url 'room-list' %}'" class="user-icon"><i class="fa-solid fa-users"></i></button>
+            </h2>
+
+            <hr>
+
+            <div class="user-list-container">
+                <ul id="user-list"></ul>
+            </div>
+
+            <div class="buttom-container">
+                <button type="Button" onclick="location.href='{% url 'logout' %}'" class="logout-icon"><i class="fa-solid fa-right-from-bracket"></i></button>
+            </div>
+        </div>
+
+        <div class="chat-section" id="chat-section">
+            <div id="no-chat-selected">
+                <p>Select a user to start chatting</p>
+            </div>
+            <div id="chat-interface" style="display: none;">
+                <div class="chat-header">
+                    <div class="header-container">
+                        <h3 id="selected-user">Chat with <span id="chat-user-name"></span></h3>
+                    </div>
+                </div>
+                <div class="chat-messages" id="chatContainer">
+                    <!-- Messages will be displayed here -->
+                </div>
+                <div class="chat-input">
+                    <form id="message-form">
+                        <button type="button" class="photo-button" id="photo-button"><i class="fa-regular fa-square-plus"></i></button>
+                        <input type="text" id="msg" placeholder="Type your message..." required>
+                        <button type="button" class="emoji-button" id="emoji-button"><i class="fa-regular fa-face-smile"></i></button>
+                        <emoji-picker></emoji-picker>
+                        <button type="submit" class="msg-send"><i class="fa-regular fa-paper-plane"></i></button>
+                    </form>
+                </div>
+                <div id="image-upload-panel" class="image-upload-panel" style="display: none;">
+                    <div class="upload-content">
+                        <div class="image-preview" id="image-preview">
+                            <img id="preview-img" src="" alt="" style="display: none;">
+                            <div class="upload-placeholder" id="upload-placeholder">
+                                <i class="fa-solid fa-cloud-upload-alt"></i>
+                                <p>Click to select or drag an image here</p>
+                            </div>
+                        </div>
+                        <input type="file" id="image-input" accept="image/*" style="display: none;">
+                        <button type="button" class="send-image-btn" id="send-image-btn" disabled>Send Image</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+         <!-- Password modal -->
+        <div class="password-modal" id="passwordModal">
+            <div class="password-modal-content">
+                <span id="password-room-name"></span>
+                <input type="password" id="roomPasswordInput" placeholder="Enter room password">
+                <button id="submitPassword">Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        const emojiButton = document.getElementById('emoji-button');
+        const emojiPicker = document.querySelector('emoji-picker');
+        const messageInput = document.getElementById('msg');
+    
+        const photoButton = document.getElementById('photo-button');
+        const imageUploadPanel = document.getElementById('image-upload-panel');
+        const imagePreview = document.getElementById('image-preview');
+        const imageInput = document.getElementById('image-input');
+        const previewImg = document.getElementById('preview-img');
+        const uploadPlaceholder = document.getElementById('upload-placeholder');
+        const sendImageBtn = document.getElementById('send-image-btn');
+    
+        // Modal elements
+        const passwordModal = document.getElementById('passwordModal');
+        const roomPasswordInput = document.getElementById('roomPasswordInput');
+        const submitPasswordButton = document.getElementById('submitPassword');
+        const passwordRoomName = document.getElementById('password-room-name');
+        let selectedRoomId = null;
+    
+        function handleImageSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                handleImageFile(file);
+            }
+        }
+    
+        function handleImageFile(file) {
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    previewImg.src = e.target.result;
+                    previewImg.style.display = 'block';
+                    uploadPlaceholder.style.display = 'none';
+                    sendImageBtn.disabled = false;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+    
+        function resetUploadPanel() {
+            imageInput.value = '';
+            previewImg.src = '';
+            previewImg.style.display = 'none';
+            uploadPlaceholder.style.display = 'block';
+            sendImageBtn.disabled = true;
+        }
+    
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            imagePreview.classList.add('drag-over');
+        }
+    
+        function handleDragLeave(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            imagePreview.classList.remove('drag-over');
+        }
+    
+        function handleDrop(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            imagePreview.classList.remove('drag-over');
+    
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                const file = files[0];
+                if (file.type.startsWith('image/')) {
+                    handleImageFile(file);
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(file);
+                    imageInput.files = dataTransfer.files;
+                } else {
+                    alert('Please drop an image file.');
+                }
+            }
+        }
+    
+        document.addEventListener('DOMContentLoaded', function() {
+    
+            imagePreview.addEventListener('dragover', handleDragOver);
+            imagePreview.addEventListener('dragleave', handleDragLeave);
+            imagePreview.addEventListener('drop', handleDrop);
+    
+            photoButton.addEventListener('click', () => {
+                const currentDisplay = imageUploadPanel.style.display;
+                imageUploadPanel.style.display = currentDisplay === 'none' ? 'block' : 'none';
+                if(imageUploadPanel.style.display === 'none')
+                {
+                    resetUploadPanel();
+                }
+            });
+    
+            imagePreview.addEventListener('click', () => {
+                imageInput.click();
+            });
+    
+            imageInput.addEventListener('change', handleImageSelect);
+    
+            imagePreview.addEventListener('dragover', (e) => {
+                e.preventDefault();
+            });
+    
+            emojiPicker.style.display = 'none';
+    
+            emojiButton.addEventListener('click', () => {
+                const currentDisplay = emojiPicker.style.display;
+                emojiPicker.style.display = currentDisplay === 'none' ? 'block' : 'none';
+            });
+    
+            emojiPicker.addEventListener('emoji-click', event => {
+                const emoji = event.detail.unicode;
+                
+                const cursorPosition = messageInput.selectionStart;
+                    
+                const currentValue = messageInput.value;
+                messageInput.value = 
+                    currentValue.slice(0, cursorPosition) + 
+                    emoji + 
+                    currentValue.slice(cursorPosition);
+                    
+                const newPosition = cursorPosition + emoji.length;
+                messageInput.setSelectionRange(newPosition, newPosition);
+                    
+                messageInput.focus();
+            });
+    
+            document.addEventListener('click', event => {
+                if (!emojiPicker.contains(event.target) && 
+                    !emojiButton.contains(event.target)) {
+                    emojiPicker.style.display = 'none';
+                }
+            });
+        });
+    
+        function encryptMessage(message, messageID) {
+            const key = messageID;
+            // Convert message to UTF-8 encoded array
+            const encoder = new TextEncoder();
+            const messageBytes = encoder.encode(message);
+            const keyBytes = encoder.encode(key);
+            
+            // Create encrypted byte array
+            const encryptedBytes = new Uint8Array(messageBytes.length);
+            for (let i = 0; i < messageBytes.length; i++) {
+                encryptedBytes[i] = messageBytes[i] ^ keyBytes[i % keyBytes.length];
+            }
+            
+            // Convert to Base64 that can handle binary data
+            const encryptedBase64 = btoa(String.fromCharCode.apply(null, encryptedBytes));
+            const keyBase64 = btoa(String.fromCharCode.apply(null, keyBytes));
+            
+            return {
+                data: encryptedBase64,
+                key: keyBase64
+            };
+        }
+    
+        function decryptMessage(encryptedData, key) {
+            // Decode Base64
+            const encryptedBytes = new Uint8Array(
+                atob(encryptedData).split('').map(char => char.charCodeAt(0))
+            );
+            const keyBytes = new Uint8Array(
+                atob(key).split('').map(char => char.charCodeAt(0))
+            );
+            
+            // Decrypt bytes
+            const decryptedBytes = new Uint8Array(encryptedBytes.length);
+            for (let i = 0; i < encryptedBytes.length; i++) {
+                decryptedBytes[i] = encryptedBytes[i] ^ keyBytes[i % keyBytes.length];
+            }
+            
+            // Convert back to string using UTF-8 decoder
+            const decoder = new TextDecoder();
+            return decoder.decode(decryptedBytes);
+        }
+    
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+        import { getFirestore, collection, getDocs, addDoc, serverTimestamp, doc, getDoc } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+    
+        const firebaseConfig = {
+            apiKey: "AIzaSyEXAMPLE_API_KEY_HERE",
+            authDomain: "example-project.firebaseapp.com",
+            projectId: "example-project-id",
+            storageBucket: "example-project.firebasestorage.app",
+            messagingSenderId: "123456789012",
+            appId: "1:123456789012:web:example-app-id",
+            measurementId: "G-EXAMPLE_MEASUREMENT_ID"
+          };
+    
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        
+        const userID = '{{ userID }}';
+    
+        const notReadMap = new Map();
+        
+        async function loadOldMessages(selectedUser) {
+            const chatContainer = document.getElementById('chatContainer');
+            chatContainer.innerHTML = '';
+    
+            const chatChannel = [userID, selectedUser].sort().join('_');
+            const messagesRef = collection(db, "private_chats", `${chatChannel}`, "messages");
+            const querySnapshot = await getDocs(messagesRef);
+            console.log(`[Firestore] GET Request: /private_chats/${chatChannel}/messages, Documents: ${querySnapshot.size}`);
+    
+            const sortedMessages = querySnapshot.docs.sort((a, b) => {
+                const dateA = new Date(a.data().timestamp.toDate());
+                const dateB = new Date(b.data().timestamp.toDate());
+                return dateA - dateB; 
+            });
+    
+            sortedMessages.forEach(doc => {
+                const message = doc.data();
+                const sender = message.sender;
+                const isRead = message.isRead;
+                const type = message.type;
+                const textMessage = message.message;
+                const messageID = doc.id;
+    
+                const messageDiv = document.createElement('div');
+                messageDiv.className = sender !== userID ? 'message received' : 'message sent';
+                
+                if (type === 'image') {
+                    const image = document.createElement('img');
+                    image.src = textMessage;
+                    messageDiv.appendChild(image);
+                } else {
+                    const decryptedMessage = decryptMessage(textMessage, messageID);
+                    messageDiv.textContent = decryptedMessage;
+                }
+                
+                const tickIcon = document.createElement('i');
+                tickIcon.className = isRead ? 'fa-solid fa-check-double' : 'fa-solid fa-check';
+                messageDiv.appendChild(tickIcon);
+                chatContainer.appendChild(messageDiv);
+                
+                if (!isRead && sender !== userID) {
+                    const readStatusPayload = {
+                        'type': 'read_status',
+                        'sender': userID,
+                        'receiver': selectedUser,
+                        'messageID': doc.id,
+                    };
+                     const startTime = performance.now();
+                    socket.send(JSON.stringify(readStatusPayload));
+                      const endTime = performance.now();
+                     const timeTaken = (endTime - startTime).toFixed(2);
+                      console.log(`[WebSocket] Sending read_status payload: ${JSON.stringify(readStatusPayload)}, Time taken: ${timeTaken}ms`);
+                    notReadMap.set(doc.id, messageDiv);
+                }
+            });
+    
+            scrollToBottom();
+        }
+    
+        function selectUser(username,userID) {
+            document.getElementById('no-chat-selected').style.display = 'none';
+            document.getElementById('chat-interface').style.display = 'flex';
+            document.getElementById('chat-user-name').textContent = username;
+            
+            loadOldMessages(userID);
+            setupWebSocket(userID);
+        }
+    
+        let socket = null;
+        let connectionStartTime;
+    
+        function setupWebSocket(selectedUser) {
+            const chatChannel = [userID, selectedUser].sort().join('_');
+    
+            if (socket) {
+                console.log("[WebSocket] Closing existing WebSocket connection.");
+                socket.close();
+                socket = null;
+            }
+    
+            const websocketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+            const wsEndpoint = `${websocketProtocol}://${window.location.host}/ws/private_notification/${chatChannel}/`;
+            socket = new WebSocket(wsEndpoint);
+            console.log(`[WebSocket] Attempting to connect to: ${wsEndpoint}`);
+            connectionStartTime = performance.now();
+    
+    
+            socket.onopen = () => {
+                const connectionTime = (performance.now() - connectionStartTime).toFixed(2);
+                console.log(`[WebSocket] Connection opened! Connection time: ${connectionTime}ms`);
+            };
+            
+            socket.onclose = () => console.log("[WebSocket] Connection closed!");
+            socket.onerror = (error) => console.error("[WebSocket] Error:", error);
+    
+            sendImageBtn.addEventListener('click', async () => {
+                const file = imageInput.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    
+                    reader.onload = async (event) => {
+                        const img = new Image();
+                        img.src = event.target.result;
+                        
+                        await new Promise(resolve => img.onload = resolve);
+                        
+                        let width = img.width;
+                        let height = img.height;
+                        
+                        if (width > 2048 || height > 2048) {
+                            const ratio = Math.min(2048 / width, 2048 / height);
+                            width *= ratio;
+                            height *= ratio;
+                        }
+                        
+                        const canvas = document.createElement('canvas');
+                        canvas.width = width;
+                        canvas.height = height;
+                        
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        const base64Image = canvas.toDataURL('image/jpeg', 0.9);
+                        
+                        const timestamp = new Date();
+                        const messagePayload = {
+                            'message': base64Image,
+                            'receiver': selectedUser,
+                            'sender': userID,
+                            'messageID': `${userID}-${timestamp.getTime()}`,
+                            'type': 'image',
+                        };
+                        const payloadString = JSON.stringify(messagePayload);
+                        const startTime = performance.now();
+                        socket.send(payloadString);
+                        const endTime = performance.now();
+                        const timeTaken = (endTime - startTime).toFixed(2);
+                        console.log(`[WebSocket] Sending image message, Payload size: ${payloadString.length} bytes, Time taken: ${timeTaken}ms, Payload: ${payloadString}`);
+                    };
+                    
+                    reader.readAsDataURL(file);
+                    resetUploadPanel();
+                    messageInput.value = "";
+                    imageUploadPanel.style.display = 'none';
+                }
+            });
+    
+            document.getElementById('message-form').onsubmit = null; 
+            document.getElementById('message-form').onsubmit = async function(event) {
+                event.preventDefault();
+                const messageInput = document.getElementById('msg');
+                const message = messageInput.value.trim();
+                const timestamp = new Date();
+                const messageID = `${userID}-${timestamp.getTime()}`;
+    
+                if (socket.readyState === WebSocket.OPEN && message) 
+                {
+                    const encrypted = encryptMessage(message, messageID);
+    
+                    const messagePayload = {
+                        'message': encrypted.data,
+                        'receiver': selectedUser,
+                        'sender' : userID,
+                        'messageID': encrypted.key,
+                        'type' : 'message',
+                    };
+                    
+                     if (socket.readyState === WebSocket.OPEN && message) {
+                        const payloadString = JSON.stringify(messagePayload);
+                         const startTime = performance.now();
+                         socket.send(payloadString);
+                          const endTime = performance.now();
+                         const timeTaken = (endTime - startTime).toFixed(2);
+                          console.log(`[WebSocket] Sending text message, Payload size: ${payloadString.length} bytes, Time taken: ${timeTaken}ms, Payload: ${payloadString}`);
+                    }
+                    messageInput.value = ""; 
+                }
+            };
+    
+            socket.onmessage = async (event) => {
+                const data = JSON.parse(event.data);
+                const messageData = data['message'];
+                const messageType = messageData['type'];
+                const startTime = performance.now();
+                console.log(`[WebSocket] Received message, Data: ${event.data}`);
+    
+                if (messageType === 'read_status') 
+                {
+                    const messageId = messageData['messageID'];
+                    
+                    if (notReadMap.has(messageId)) {
+                        const messageDiv = notReadMap.get(messageId);
+                        messageDiv.querySelector('.fa-solid.fa-check').className = 'fa-solid fa-check-double'; 
+                        notReadMap.delete(messageId);
+                         const endTime = performance.now();
+                        const timeTaken = (endTime - startTime).toFixed(2);
+                           console.log(`[WebSocket] Received read_status message for messageID ${messageId}, Time taken: ${timeTaken}ms.`);
+                    }
+                } 
+                else if (messageType === 'message') {
+                    const sender = messageData['sender'];
+                    const encryptedMessage = messageData['message'];
+                    const messageID = messageData['messageID'];
+                    const isRead = messageData['isRead'];
+    
+                    const decryptedMessage = decryptMessage(encryptedMessage, messageID);
+    
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = sender !== userID ? 'message received' : 'message sent';
+                    messageDiv.textContent = decryptedMessage;
+    
+                    const tickIcon = document.createElement('i');
+                    tickIcon.className = 'fa-solid fa-check';
+                    messageDiv.appendChild(tickIcon);
+    
+                    const chatContainer = document.getElementById("chatContainer");
+                    chatContainer.appendChild(messageDiv);
+                    notReadMap.set(messageID, messageDiv);
+    
+                    if (sender !== userID && !isRead)
+                    {
+                        const readStatusPayload = {
+                            'type': 'read_status',
+                            'sender' : sender,
+                            'receiver': selectedUser,
+                            'messageID': messageID,
+                        };
+                        const startTime = performance.now();
+                         socket.send(JSON.stringify(readStatusPayload));
+                         const endTime = performance.now();
+                        const timeTaken = (endTime - startTime).toFixed(2);
+                         console.log(`[WebSocket] Sending read_status payload: ${JSON.stringify(readStatusPayload)}, Time taken: ${timeTaken}ms`);
+                    }
+    
+                    scrollToBottom();
+                }
+                else if(messageType == "image")
+                {
+                    const sender = messageData['sender'];
+                    const imageUrl = messageData['message'];
+                    const messageID = messageData['messageID'];
+                    
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = sender !== userID ? 'message received' : 'message sent';
+                    
+                    const image = document.createElement('img');
+                    image.src = imageUrl;
+                    
+                    const tickIcon = document.createElement('i');
+                    tickIcon.className = 'fa-solid fa-check';
+                    
+                    messageDiv.appendChild(image);
+                    messageDiv.appendChild(tickIcon);
+                    
+                    const chatContainer = document.getElementById("chatContainer");
+                    chatContainer.appendChild(messageDiv);
+                    notReadMap.set(messageID, messageDiv);
+                    
+                    if (sender !== userID) {
+                        const readStatusPayload = {
+                            'type': 'read_status_image',
+                            'sender': sender,
+                            'receiver': selectedUser,
+                            'messageID': messageID,
+                        };
+                          const startTime = performance.now();
+                        socket.send(JSON.stringify(readStatusPayload));
+                        const endTime = performance.now();
+                        const timeTaken = (endTime - startTime).toFixed(2);
+                       console.log(`[WebSocket] Sending read_status_image payload: ${JSON.stringify(readStatusPayload)}, Time taken: ${timeTaken}ms`);
+                    }
+                    scrollToBottom();
+                }
+                
+                 const endTime = performance.now();
+                const timeTaken = (endTime - startTime).toFixed(2);
+               console.log(`[WebSocket] Message processing time: ${timeTaken}ms.`);
+            };
+        }
+    
+        function scrollToBottom() {
+            const chatContainer = document.getElementById('chatContainer');
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+    
+    
+        async function showPasswordModal(roomName, roomId) {
+            passwordRoomName.textContent = 'Enter Password for: ' + roomName;
+            passwordModal.style.display = "flex";
+            selectedRoomId = roomId;
+            roomPasswordInput.value = '';
+        }
+    
+        async function joinRoomWithPassword(roomId, password){
+             try {
+                const roomDocRef = doc(db, "rooms", roomId);
+                const roomDocSnapshot = await getDoc(roomDocRef);
+                console.log(`[Firestore] GET Request: /rooms/${roomId}, Document: ${roomDocSnapshot.exists()}`);
+                if (!roomDocSnapshot.exists()) {
+                    alert("Room not found.");
+                    return;
+                }
+    
+                const roomData = roomDocSnapshot.data();
+                const storedPasswordHash = roomData.room_password;
+    
+                if(storedPasswordHash === null)
+                {
+                    window.location.href = `/room/${roomId}`;
+                }
+    
+                if(!password){
+                    alert("Please enter password");
+                    return;
+                }
+    
+                // Implement password verification logic here
+                const isPasswordCorrect = await verifyPassword(password, storedPasswordHash);
+                if (isPasswordCorrect)
+                {
+                   window.location.href = `/room/${roomId}`;
+                }
+                else
+                {
+                    alert("Invalid Password");
+                    return;
+                }
+    
+            } catch (error) {
+               console.error("Error joining room", error);
+            }
+        }
+        
+        async function verifyPassword(inputPassword, storedPasswordHash){
+            // Implement secure hash verification logic
+            if(inputPassword && storedPasswordHash){
+                // Here you should use the same hashing algorithm and salt used when storing.
+                 // This is a placeholder, replace it with secure verification logic
+                const testHash = await hashPassword(inputPassword)
+                return testHash === storedPasswordHash;
+            }
+            return false;
+        }
+    
+        async function hashPassword(inputPassword){
+            const encoder = new TextEncoder();
+            const data = encoder.encode(inputPassword);
+    
+             // Here it returns SHA-256 hash of the data using crypto API, this is just for demonstration
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    
+            return hashHex
+        }
+    
+    
+        submitPasswordButton.addEventListener('click', () => {
+            const password = roomPasswordInput.value;
+            joinRoomWithPassword(selectedRoomId, password);
+            passwordModal.style.display = "none";
+        });
+        
+        async function getUsers() {
+            const userList = document.getElementById('user-list');
+            const querySnapshot = await getDocs(collection(db, "users"));
+              console.log(`[Firestore] GET Request: /users, Documents: ${querySnapshot.size}`);
+            querySnapshot.forEach((doc) => {
+                const userData = doc.data();
+                if (doc.id !== userID) {
+                    const li = document.createElement('li');
+                    li.textContent = userData.username;
+                    li.onclick = () => selectUser(userData.username,doc.id);
+                    userList.appendChild(li);
+                }
+            });
+        }
+    
+    
+        getUsers();
+    </script>
+</body>
+</html>
